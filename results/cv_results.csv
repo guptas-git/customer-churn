@@ -1,0 +1,4 @@
+model,threshold,roc_auc,f1,precision,recall,accuracy,precision_top20%
+logreg,0.367,0.752,0.747,0.638,0.9,0.676,0.787
+random_forest,0.406,0.757,0.752,0.655,0.882,0.691,0.797
+xgboost,0.372,0.761,0.752,0.651,0.89,0.689,0.801

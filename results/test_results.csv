@@ -1,0 +1,6 @@
+model,roc_auc,f1,precision,recall,accuracy,precision_top20%
+baseline: always churn,0.5,0.553,0.382,1.0,0.382,0.371
+baseline: no order in 90 days,0.656,0.488,0.539,0.445,0.642,0.586
+logreg,0.73,0.623,0.53,0.757,0.65,0.601
+random_forest,0.737,0.619,0.537,0.732,0.656,0.644
+xgboost,0.74,0.605,0.564,0.652,0.674,0.647
