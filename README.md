@@ -2,7 +2,7 @@
 
 This project predicts which active customers of an online wholesaler will stop buying in the next 90 days, groups them into RFM segments, and produces a ranked call list for the retention team.
 
-> This rebuilds, on public data, the churn and segmentation work I did as a Data Analyst at Think and Wash. The original work used internal company data that I can't share.
+> This rebuilds, on public data, the churn and segmentation work I did as a Data Analyst at Think and Wash. The original work used internal company data that I can't share, so the metrics here come from the public data and differ from the original project's.
 
 ![Results](results/churn.png)
 
