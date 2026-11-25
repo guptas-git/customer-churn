@@ -1,102 +1,86 @@
-# Customer Churn Prediction and RFM Segmentation
+# Customer churn and RFM segmentation
 
-This project predicts which active customers of an online wholesaler will stop buying in the next 90 days, groups them into RFM segments, and produces a ranked call list for the retention team.
+Which customers are likely to stop ordering, and who should a retention team contact first?
 
-> This rebuilds, on public data, the churn and segmentation work I did as a Data Analyst at Think and Wash. The original work used internal company data that I can't share, so the metrics here come from the public data and differ from the original project's.
+Using two years of transactions from a UK online wholesaler, XGBoost reaches **0.740 ROC-AUC** on a later-quarter test, compared with **0.656** for a recency rule. Among the highest-risk 20% of customers, **64.7%** subsequently stop buying for 90 days.
 
-![Results](results/churn.png)
+This is a public-data rebuild of the churn and segmentation work I did as a Data Analyst at Think and Wash. Employer data is not included. The results below come from the public dataset, not the employment results on my resume.
 
-## Problem
+![Churn model comparison, feature importance and segment profiles](results/churn.png)
 
-A retention team can only contact a fraction of its customers, so it needs answers to three questions:
-- Who is likely to stop ordering?
-- Which of them are worth the effort?
-- What kind of offer fits each group?
+The [analysis notebook](notebooks/eda.ipynb) includes executed outputs. The [test results](results/test_results.csv), [segment profiles](results/segments.csv) and [ranked customer list](results/scores.csv) are available without running the code.
 
-The current rule of thumb is "no order in 90 days = churned". It catches customers only after they're already gone.
+## Data and cleaning
 
-## Data
+[UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii), December 2009 to December 2011: about 1.07 million invoice lines. The dataset is distributed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); source transactions are downloaded separately.
 
-[UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii) (CC BY 4.0) has 1.07M invoice lines from a UK online gift wholesaler, Dec 2009 – Dec 2011, across 5,875 identified customers in 41 countries.
+Dataset credit: Chen, D. (2012). *Online Retail II*. UCI Machine Learning Repository. [doi:10.24432/C5CG6D](https://doi.org/10.24432/C5CG6D). The cleaning steps below and customer-level outputs are transformations of that source.
 
-**Cleaning:**
-- **Duplicates:** 34K exact duplicate lines removed. 1–9 Dec 2010 appears in both Excel sheets, and some lines were scanned twice.
-- **No customer ID:** 235K lines (23%) are guest checkouts. They can't be tracked over time, so they're dropped.
-- **Non-product lines:** postage, fees, manual adjustments, bad-debt write-offs and test items, which aren't purchases.
-- **Net spend:** spend is measured after returns. One customer ordered £168K and cancelled the whole order the same day. Counted gross, that order would have topped the call list.
+The cleaning decisions matter to the call list:
 
-## Approach
+- Remove exact duplicates, including the overlap between the two workbook sheets.
+- Drop rows without a customer ID. Guest purchases cannot be linked over time.
+- Exclude postage, fees, adjustments and test items.
+- Keep returns and subtract them from spend. One customer placed and cancelled a £168,000 order on the same day; gross spend would give that customer an inflated priority.
 
-**1. A leakage-safe churn label.** Each snapshot takes a cutoff date and the customers who bought in the 180 days before it.
-- **Features** use only those 180 days.
-- **Label:** `churned = 1` if the customer places no order in the next 90 days.
-- [test_churn.py](test_churn.py) checks the rule: transactions after the cutoff never change a feature.
+## Evaluation
 
-**2. An out-of-time test.** Snapshots are taken every 90 days.
-- **Test:** the last one with a complete label window (cutoff 10 Sep 2011, 2,783 customers).
-- **Train:** the five quarters before it (14,869 customer-snapshots).
-- **Cross-validation:** folds are grouped by customer, because the same customer appears in several snapshots.
+An active customer has bought in the **180 days before a cutoff**. Features describe that history; the label is whether they make **no purchase in the following 90 days**. Returns alone do not count as a purchase. The [snapshot test](test_churn.py) checks date boundaries and verifies that future transactions cannot change past features.
 
-**3. Seasonality.** Churn depends on the season. Customers stock up before Christmas, so churn in the Sep–Dec window is 38–39%, against 50–65% in the other quarters. The training data includes the same quarter a year earlier, plus a `peak_season` flag, so the model doesn't over-flag customers in peak season. My first version lacked this, and its accuracy was below the simple rule.
+The final test cutoff is **10 September 2011**, with 2,783 customers and a 38.2% churn rate. Training uses five earlier snapshots, 90 days apart, totalling 14,869 customer-snapshots. Their label windows finish by the test cutoff. Customers can appear in both periods, as they would when rescoring an existing customer base.
 
-**4. Models.** Logistic regression, Random Forest and XGBoost run in sklearn pipelines (imputation, plus log-scaling for LogReg) on 11 features: recency, tenure, order counts, net spend, average order value, product range, gap between orders, return rate, UK flag and season. Model selection uses cross-validated ROC-AUC. The decision threshold is the cross-validated F1 optimum, fixed before the test.
+Logistic regression, Random Forest and XGBoost use the same 11 features. Training cross-validation uses five folds grouped by customer, so one customer's snapshots stay in one fold. Model selection uses ROC-AUC; the classification threshold maximizes F1 on out-of-fold training predictions. Both choices are fixed before evaluating the test quarter. These grouped folds mix training periods; the later-quarter holdout is the temporal check.
 
-**5. Segmentation.** K-means runs on log-scaled recency, frequency and monetary value. I used k = 4: silhouette is highest at k = 2, but that only splits active from lapsed customers. Among k ≥ 3, k = 4 scores best, and each segment maps to a different action.
+Churn is 38–39% in the September–December windows, against 50–65% in other quarters. Training includes the previous year's comparable period and a calendar-based `peak_season` feature. With only two years of history, this is limited evidence of how seasonality will generalize.
 
-## Results
+| Model | ROC-AUC | F1 | Precision | Recall | Accuracy | Precision in top 20% |
+|---|---:|---:|---:|---:|---:|---:|
+| Always predict churn | 0.500 | 0.553 | 0.382 | 1.000 | 0.382 | 0.371 |
+| No order in 90 days | 0.656 | 0.488 | 0.539 | 0.445 | 0.642 | 0.586 |
+| Logistic regression | 0.730 | 0.623 | 0.530 | 0.757 | 0.650 | 0.601 |
+| Random Forest | 0.737 | 0.619 | 0.537 | 0.732 | 0.656 | 0.644 |
+| **XGBoost, selected by training CV** | **0.740** | **0.605** | **0.564** | **0.652** | **0.674** | **0.647** |
 
-Out-of-time test, Sep–Dec 2011 (38.2% churned):
+The constant baseline predicts the training majority class, which is churn. It has no useful ranking; its top-20% precision depends on tie order. Always predicting that customers stay would reach 61.8% accuracy in the test quarter. Accuracy alone is therefore a poor reason to choose a model.
 
-| Model | ROC-AUC | F1 | Precision | Recall | Accuracy | Precision, top 20% |
-|---|---|---|---|---|---|---|
-| Always predict churn | 0.50 | 0.55 | 0.38 | 1.00 | 0.38 | 0.37 |
-| Rule: no order in 90 days | 0.66 | 0.49 | 0.54 | 0.45 | 0.64 | 0.59 |
-| Logistic regression | 0.73 | 0.62 | 0.53 | 0.76 | 0.65 | 0.60 |
-| Random Forest | 0.74 | 0.62 | 0.54 | 0.73 | 0.66 | 0.64 |
-| **XGBoost (chosen by CV)** | **0.74** | **0.61** | **0.56** | **0.65** | **0.67** | **0.65** |
+The three fitted models are close. XGBoost was selected before the test, but Random Forest has a slightly higher test F1. Logistic regression is a reasonable option when simpler explanations matter more than the small AUC difference.
 
-In cross-validation on the training quarters, XGBoost scored ROC-AUC 0.76, F1 0.75 and accuracy 0.69. Accuracy isn't the headline metric here: predicting "stays" for everyone would score 62% on the test quarter.
+## What the retention team could use
 
-**Findings:**
-- **Most churners still look active.** 590 of the 1,064 test churners (55%) had ordered in the last 90 days, so the rule can never flag them. The model catches 307 of them (52%), and 51% of the customers it flags in that group really do churn.
-- **Order rhythm and tenure matter most.** By permutation importance, the strongest signals are the usual gap between orders and how long the customer has been buying, ahead of recency. Customers first seen less than 6 months ago churn at about 63%, against 42% for established ones.
-- **The models are close.** The three models are within 0.01 AUC of each other. Logistic regression is a reasonable choice if explainability matters more than the last point of AUC.
+The recency rule misses **590 of the 1,064 churners** because they had ordered within the last 90 days. The selected model catches 307 of those recent buyers. Order rhythm and tenure are its strongest ranking signals by permutation importance.
 
-**Segments (test quarter):**
+RFM segmentation uses log-scaled recency, order count and net spend. Four clusters give usable groups; silhouette is highest at two clusters, but among three to eight clusters, four scores best. The segment fit is descriptive, using test-period features without churn labels.
 
-| Segment | Customers | Median recency | Median orders (6 mo) | Share of net spend | Actual churn | Action |
-|---|---|---|---|---|---|---|
-| Champions | 301 | 8 days | 8 | 53% | 5% | Protect: account manager, early access |
-| Regulars | 887 | 44 days | 3 | 32% | 26% | **Call list:** largest spend at risk |
-| Recent, low spend | 337 | 7 days | 2 | 6% | 39% | Second-order offer. A recency rule calls them safe. |
-| Lapsing | 1,258 | 103 days | 1 | 10% | 55% | Cheap automated win-back email |
+| Segment | Customers | Median recency | Share of net spend | Observed churn | Possible action |
+|---|---:|---:|---:|---:|---|
+| Champions | 301 | 8 days | 52.6% | 5.0% | Account support and loyalty benefits |
+| Regulars | 887 | 44 days | 31.5% | 25.9% | Prioritize valuable customers flagged at risk |
+| Recent, low spend | 337 | 7 days | 5.7% | 38.6% | Test a second-order offer |
+| Lapsing | 1,258 | 103 days | 10.2% | 54.8% | Lower-cost win-back campaign |
 
-**Scoring.** [score.py](score.py) scores the 3,471 customers active at the end of the data. It ranks the at-risk customers by expected spend at risk (churn probability × 6-month net spend) and writes `results/scores.csv`. Regulars hold the largest expected spend at risk, about £517K.
+[score.py](score.py) loads the saved model and scores **3,471 customers** as of the day after the dataset ends. It sorts by churn probability multiplied by historical six-month net spend. **This is a prioritization heuristic, not a forecast of revenue lost or evidence that a call prevents churn.** Filter `at_risk == 1` for the suggested call list. This file is a historical example, not a live customer feed.
 
-## How to run
+## Run locally
 
-Tested with Python 3.12. Download `online_retail_II.xlsx` from the UCI link above into `data/`.
+Tested with Python 3.12. From the repository root:
 
 ```bash
-pip install -r requirements.txt
-python test_churn.py   # leakage check, prints "ok"
-python train.py        # ~15 s after the first run, which spends ~45 s converting the xlsx to CSV
-python score.py        # today's call list -> results/scores.csv
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python test_churn.py
+mkdir -p data
 ```
 
-[notebooks/eda.ipynb](notebooks/eda.ipynb) walks through cleaning, the seasonality problem, churn drivers, where the model beats the rule, and the segments.
+Download `online_retail_II.xlsx` from the UCI page into `data/`, then run:
 
-## Files
+```bash
+python train.py
+python score.py
+```
 
-| File | What it does |
-|---|---|
-| [train.py](train.py) | Loads and cleans the data, builds snapshots, cross-validates 3 models against baselines, runs the out-of-time test and segmentation, and saves `models/churn.joblib` and `results/` |
-| [score.py](score.py) | Scores current customers and writes the ranked call list |
-| [test_churn.py](test_churn.py) | Checks the no-leakage rule for features and labels |
-| [notebooks/eda.ipynb](notebooks/eda.ipynb) | Analysis and reasoning behind each choice |
+Training creates `models/churn.joblib`, evaluation CSVs and the chart in `results/`. The first run also caches the Excel data as CSV. Raw data, the virtual environment and trained model are ignored by Git. To explore the notebook, install Jupyter separately in the same environment, then run all cells after training.
 
-## What I'd do next
+## Limits
 
-- **Measure uplift, not just risk.** Run an A/B test on the call list. A customer at high risk isn't necessarily one a call can save.
-- **Recalibrate every quarter.** Churn levels shift with the season. Retrain each quarter and track predicted vs actual churn by segment.
-- **Add product-level signals.** Category mix and price sensitivity could help with wholesale buyers.
+One later quarter is not enough to establish performance across seasons. A useful next check is repeated temporal holdouts, followed by calibration checks before using probabilities for decisions. The model predicts inactivity, not whether an intervention will work; that needs a controlled retention experiment. The public dataset also differs from a laundry business in purchase frequency and customer behavior.

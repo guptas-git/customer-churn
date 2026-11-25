@@ -192,22 +192,31 @@ def main():
     test_res.to_csv(out / "test_results.csv")
     segments.to_csv(out / "segments.csv")
     importance.to_csv(out / "feature_importance.csv", header=["roc_auc_drop"])
-    # Refit on train + test for scoring today's customers; the threshold stays the CV one.
+    # Refit on all labeled snapshots for end-of-dataset scoring; keep the CV threshold.
     full = pd.concat([train, test])
     final = models()[chosen].fit(full[FEATURES], full.churned)
     joblib.dump({"model": final, "name": chosen, "threshold": cv.loc[chosen, "threshold"],
                  "segmenter": seg, "segment_names": names}, models_dir / "churn.joblib")
 
-    fig, ax = plt.subplots(1, 3, figsize=(17, 5))
+    labels = {"logreg": "Logistic regression", "random_forest": "Random Forest", "xgboost": "XGBoost"}
+    feature_labels = dict(zip(FEATURES, ["Days since last order", "Customer tenure", "Orders, 90 days",
+        "Orders, 180 days", "Net spend, 180 days", "Average order value", "Product range",
+        "Average order gap", "Return rate", "UK customer", "Peak season"]))
+    fig, ax = plt.subplots(1, 3, figsize=(18, 5.5))
     for name, p in proba.items():
         fpr, tpr, _ = roc_curve(test.churned, p)
-        ax[0].plot(fpr, tpr, label=f"{name} (AUC {roc_auc_score(test.churned, p):.2f})")
+        ax[0].plot(fpr, tpr, label=f"{labels[name]} ({roc_auc_score(test.churned, p):.3f})")
     fpr, tpr, _ = roc_curve(test.churned, test.recency)
     ax[0].plot(fpr, tpr, "k--", label=f"recency rule (AUC {roc_auc_score(test.churned, test.recency):.2f})")
-    ax[0].set(title="ROC, out-of-time test", xlabel="false positive rate", ylabel="true positive rate")
+    ax[0].set(title="Can the model rank future churners?", xlabel="False positive rate", ylabel="True positive rate")
     ax[0].legend()
-    importance.plot.barh(ax=ax[1], title=f"Permutation importance ({chosen}), drop in AUC")
-    segments[["actual_churn", "predicted_churn"]].plot.barh(ax=ax[2], title="Churn rate by segment, test")
+    importance.rename(index=feature_labels).plot.barh(ax=ax[1], color="#315e78", title=f"What {labels[chosen]} uses to rank customers")
+    ax[1].set_xlabel("Drop in test ROC-AUC when shuffled")
+    (segments[["actual_churn", "predicted_churn"]] * 100).rename(
+        columns={"actual_churn": "Observed", "predicted_churn": "Mean predicted"}
+    ).plot.barh(ax=ax[2], color=["#315e78", "#c48b4a"], title="Churn by customer segment")
+    ax[2].set(xlabel="Customers who stop buying (%)", ylabel="")
+    fig.suptitle(f"90-day churn · test cutoff {test_cutoff:%d %b %Y} · {len(test):,} customers", fontsize=13)
     fig.tight_layout()
     fig.savefig(out / "churn.png", dpi=120)
 
