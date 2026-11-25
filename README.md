@@ -92,3 +92,7 @@ Training creates `models/churn.joblib`, evaluation CSVs and the chart in `result
 ## Limits
 
 One later quarter is not enough to establish performance across seasons. A useful next check is repeated temporal holdouts, followed by calibration checks before using probabilities for decisions. The model predicts inactivity, not whether an intervention will work; that needs a controlled retention experiment. The public dataset also differs from a laundry business in purchase frequency and customer behavior.
+
+## License
+
+Original software is licensed under the [MIT License](LICENSE). The UCI Online Retail II dataset and its transformed data outputs retain their [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license and attribution requirements; the software license does not replace them.
