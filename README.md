@@ -60,6 +60,14 @@ RFM segmentation uses log-scaled recency, order count and net spend. Four cluste
 
 [score.py](score.py) loads the saved model and scores **3,471 customers** as of the day after the dataset ends. It sorts by churn probability multiplied by historical six-month net spend. **This is a prioritization heuristic, not a forecast of revenue lost or evidence that a call prevents churn.** Filter `at_risk == 1` for the suggested call list. This file is a historical example, not a live customer feed.
 
+### Contact capacity and probability checks
+
+At a 20% contact budget, the model identifies **360 churners among 556 customers**, or 33.8% of all churners. At the training-CV classification threshold, it flags 694 churners and 537 customers who actually stay, while missing 370 churners. Those are historical detection counts, not customers saved by an intervention.
+
+The [capacity table](results/retention_capacity.csv) compares model and recency rankings at the same budgets. The [confusion matrix](results/threshold_confusion.csv) shows the cost of the fixed threshold. Probability reliability is checked separately: the highest-score bin has only eight customers, so its apparent accuracy is weak evidence. See the [bin counts](results/calibration.csv) and notebook sections 7–8.
+
+![Retention capacity and probability reliability on held-out customers](results/retention_diagnostics.png)
+
 ## Run locally
 
 Tested with Python 3.12. From the repository root:
